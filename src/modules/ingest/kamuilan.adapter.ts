@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { ListingSource } from '@prisma/client';
+import { normalizeText } from '../../common/utils/normalize';
 import { ListingsService } from '../listings/listings.service';
 import { scrapeHttpsAgent } from './http-agent';
 
@@ -90,16 +91,17 @@ export class KamuilanAdapter {
       let updated = 0;
       let duplicatesSkipped = 0;
       for (const item of items) {
-        const key = item.link || `${item.org}|${item.title}`;
-        if (seen.has(key)) {
+        // Same carousel ad often has many ?kod= URLs — dedupe by org+title
+        const stableKey = `kamu:${normalizeText(item.org)}|${normalizeText(item.title)}`;
+        if (seen.has(stableKey)) {
           duplicatesSkipped += 1;
           continue;
         }
-        seen.add(key);
+        seen.add(stableKey);
         const { start, end, label } = parseDateRange(item.dates);
         const { created: isNew } = await this.listings.upsertFromSourceMeta({
           source: ListingSource.KAMUILAN,
-          externalKey: item.link || undefined,
+          externalKey: stableKey,
           title: item.title,
           institutionName: item.org,
           url: item.link || url,

@@ -78,17 +78,21 @@ export class ListingsService {
               : undefined,
           }
         : undefined;
+    const qNorm = params.q?.trim() ? normalizeText(params.q) : '';
     const where: Prisma.ListingWhereInput = {
       kind: params.kind,
       status: params.status,
       source: params.source,
       createdAt,
-      OR: params.q
+      OR: qNorm
         ? [
+            { titleNorm: { contains: qNorm } },
+            { positionNorm: { contains: qNorm } },
+            { institution: { nameNorm: { contains: qNorm } } },
+            { positions: { some: { titleNorm: { contains: qNorm } } } },
+            // raw fallback for partial legacy norms
             { title: { contains: params.q, mode: 'insensitive' } },
-            { position: { contains: params.q, mode: 'insensitive' } },
             { institution: { name: { contains: params.q, mode: 'insensitive' } } },
-            { positions: { some: { title: { contains: params.q, mode: 'insensitive' } } } },
           ]
         : undefined,
     };
@@ -203,7 +207,6 @@ export class ListingsService {
       title,
       position,
       existing.source,
-      existing.externalKey ?? undefined,
     ]);
 
     const updated = await this.prisma.listing.update({
@@ -214,6 +217,7 @@ export class ListingsService {
         titleNorm: normalizeText(title),
         position,
         positionNorm: position ? normalizeText(position) : null,
+        externalKey: input.externalKey ?? existing.externalKey,
         description: input.description ?? existing.description,
         rawText: input.rawText ?? existing.rawText,
         url: input.url ?? existing.url,
@@ -303,12 +307,32 @@ export class ListingsService {
       }
     }
 
+    // Content twin (same org+title+source) — ignore volatile ?kod= URLs
+    const titleNorm = normalizeText(input.title);
+    const byContent = await this.prisma.listing.findFirst({
+      where: {
+        source: input.source,
+        titleNorm,
+        institutionId: institutionId ?? undefined,
+        status: ListingStatus.OPEN,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (byContent) {
+      const listing = await this.update(byContent.id, {
+        ...input,
+        institutionId,
+        externalKey: input.externalKey ?? byContent.externalKey ?? undefined,
+      });
+      return { listing, created: false };
+    }
+
+    // Fingerprint without volatile externalKey so carousel URL variants collapse
     const fingerprint = buildFingerprint([
       institutionId ?? input.institutionName,
       input.title,
       input.position,
       input.source,
-      input.externalKey,
     ]);
 
     const existing = await this.prisma.listing.findUnique({ where: { fingerprint } });
@@ -332,7 +356,6 @@ export class ListingsService {
             input.title,
             input.position,
             input.source,
-            input.externalKey,
             input.applyStartAt?.toISOString(),
           ]),
           listingGroupId: existing.listingGroupId ?? existing.id,
@@ -347,15 +370,9 @@ export class ListingsService {
     const similar = await this.prisma.listing.findFirst({
       where: {
         institutionId: institutionId ?? undefined,
-        titleNorm: normalizeText(input.title),
+        titleNorm,
         status: ListingStatus.OPEN,
-        ...(input.externalKey
-          ? {
-              NOT: {
-                AND: [{ source: input.source }, { externalKey: input.externalKey }],
-              },
-            }
-          : {}),
+        NOT: { source: input.source },
       },
     });
 

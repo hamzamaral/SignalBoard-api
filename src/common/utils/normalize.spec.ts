@@ -5,6 +5,12 @@ describe('normalizeText', () => {
     expect(normalizeText('  Türk Standartları  Enstitüsü ')).toContain('turk');
     expect(normalizeText('TSE')).toBe('tse');
   });
+
+  it('treats ARALı and ARALI as the same (case + ı/i)', () => {
+    expect(normalizeText('ARALı')).toBe(normalizeText('ARALI'));
+    expect(normalizeText('ARALı')).toBe('arali');
+    expect(normalizeText('aralik')).toBe('aralik');
+  });
 });
 
 describe('buildFingerprint', () => {
