@@ -109,7 +109,13 @@ export function ruleParse(text: string): ParsedListingFields {
       /BAŞVURU ÖZEL ŞARTLARI/i,
       /BAŞVURU ESNASINDA|İSTENİLEN BELGELER/i,
     ),
-    examTopics: sliceSection(text, /Sınav Konuları/i, /SINAVIN DEĞERLENDİRİLMESİ/i),
+    examTopics: cleanExamTopics(
+      sliceSection(
+        text,
+        /Sınav\s*Konuları/i,
+        /SINAVIN\s*DEĞERLENDİRİLMESİ|İstenen\s*Belgeler|Başvuru\s*(Yeri|Şekli)|Açıklama|İletişim|İlan\s*olunur/i,
+      ),
+    ),
     evaluationNotes: sliceSection(
       text,
       /SINAVIN DEĞERLENDİRİLMESİ/i,
@@ -234,7 +240,7 @@ export function mergeParsed(
       : rules.requiredDocuments,
     generalRequirements: llm.generalRequirements || rules.generalRequirements,
     specialRequirements: llm.specialRequirements || rules.specialRequirements,
-    examTopics: llm.examTopics || rules.examTopics,
+    examTopics: preferExamTopics(rules.examTopics, llm.examTopics),
     evaluationNotes: llm.evaluationNotes || rules.evaluationNotes,
     requiredSkills: llm.requiredSkills?.length ? llm.requiredSkills : rules.requiredSkills,
     positions,
@@ -263,4 +269,48 @@ function sliceSection(text: string, start: RegExp, end: RegExp): string | undefi
   const e = rest.search(end);
   const chunk = (e > 0 ? rest.slice(0, e) : rest.slice(0, 1500)).trim();
   return chunk.length > 40 ? chunk.slice(0, 4000) : undefined;
+}
+
+/** Drop heading echo, trailing truncated junk (e.g. `7."F`). */
+export function cleanExamTopics(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  let t = raw.trim();
+  t = t.replace(/^Sınav\s*Konuları\s*[;:.\-–]?\s*/i, '');
+  // Drop last line if it looks truncated / broken quote
+  const lines = t.split(/\r?\n/).map((l) => l.trimEnd());
+  while (lines.length) {
+    const last = lines[lines.length - 1].trim();
+    if (
+      !last ||
+      /["'“”]\s*[A-Za-zÇĞİÖŞÜçğıöşü]?\s*$/.test(last) ||
+      /^\d+\s*[.)"']?\s*[A-Za-zÇĞİÖŞÜçğıöşü]?\s*$/.test(last) ||
+      /["'][A-Za-z]?$/.test(last)
+    ) {
+      lines.pop();
+      continue;
+    }
+    break;
+  }
+  t = lines.join('\n').trim();
+  if (t.length < 20) return undefined;
+  return t.slice(0, 4000);
+}
+
+function looksBadExamTopics(t?: string): boolean {
+  if (!t) return true;
+  if (t.length < 40) return true;
+  if (/["'][A-Za-zÇĞİÖŞÜçğıöşü]?$/.test(t.trim())) return true;
+  if (/\d+\s*[.)]?\s*["']?[A-Za-z]?\s*$/.test(t.trim())) return true;
+  return false;
+}
+
+function preferExamTopics(rules?: string, llm?: string): string | undefined {
+  const r = cleanExamTopics(rules);
+  const l = cleanExamTopics(llm);
+  if (l && !looksBadExamTopics(l)) {
+    // Prefer longer/cleaner rules if LLM is short garbage
+    if (r && r.length > l.length * 1.2) return r;
+    return l;
+  }
+  return r || l;
 }
