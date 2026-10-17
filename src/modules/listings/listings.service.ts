@@ -8,6 +8,7 @@ import {
 import { buildFingerprint, normalizeText } from '../../common/utils/normalize';
 import { PrismaService } from '../../database/prisma.service';
 import { InstitutionsService } from '../institutions/institutions.service';
+import { ParsedPosition } from '../parse/parsed-types';
 
 export type UpsertListingInput = {
   institutionName?: string;
@@ -29,8 +30,23 @@ export type UpsertListingInput = {
   applyStartAt?: Date | null;
   applyEndAt?: Date | null;
   resultAt?: Date | null;
+  examAt?: Date | null;
+  resultAnnounceAt?: Date | null;
+  applicationPlace?: string;
+  applicationMethods?: string[];
+  requiredDocuments?: string[];
+  generalRequirements?: string;
+  specialRequirements?: string;
+  examTopics?: string;
+  evaluationNotes?: string;
   externalKey?: string;
   requiredSkills?: string[];
+  positions?: ParsedPosition[];
+};
+
+const listingInclude = {
+  institution: true,
+  positions: { orderBy: { sequenceNo: 'asc' as const } },
 };
 
 @Injectable()
@@ -59,6 +75,7 @@ export class ListingsService {
             { title: { contains: params.q, mode: 'insensitive' } },
             { position: { contains: params.q, mode: 'insensitive' } },
             { institution: { name: { contains: params.q, mode: 'insensitive' } } },
+            { positions: { some: { title: { contains: params.q, mode: 'insensitive' } } } },
           ]
         : undefined,
     };
@@ -66,7 +83,7 @@ export class ListingsService {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.listing.findMany({
         where,
-        include: { institution: true },
+        include: listingInclude,
         orderBy: [{ applyEndAt: 'asc' }, { updatedAt: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
@@ -79,7 +96,10 @@ export class ListingsService {
   async get(id: string) {
     const listing = await this.prisma.listing.findUnique({
       where: { id },
-      include: { institution: true, revisions: { orderBy: { version: 'desc' }, take: 10 } },
+      include: {
+        ...listingInclude,
+        revisions: { orderBy: { version: 'desc' }, take: 10 },
+      },
     });
     if (!listing) throw new NotFoundException('İlan bulunamadı');
     return listing;
@@ -131,13 +151,29 @@ export class ListingsService {
           input.applyStartAt === undefined ? existing.applyStartAt : input.applyStartAt,
         applyEndAt: input.applyEndAt === undefined ? existing.applyEndAt : input.applyEndAt,
         resultAt: input.resultAt === undefined ? existing.resultAt : input.resultAt,
+        examAt: input.examAt === undefined ? existing.examAt : input.examAt,
+        resultAnnounceAt:
+          input.resultAnnounceAt === undefined
+            ? existing.resultAnnounceAt
+            : input.resultAnnounceAt,
+        applicationPlace: input.applicationPlace ?? existing.applicationPlace,
+        applicationMethods: input.applicationMethods ?? existing.applicationMethods,
+        requiredDocuments: input.requiredDocuments ?? existing.requiredDocuments,
+        generalRequirements: input.generalRequirements ?? existing.generalRequirements,
+        specialRequirements: input.specialRequirements ?? existing.specialRequirements,
+        examTopics: input.examTopics ?? existing.examTopics,
+        evaluationNotes: input.evaluationNotes ?? existing.evaluationNotes,
         requiredSkills: input.requiredSkills ?? existing.requiredSkills,
         status: input.status ?? existing.status,
         fingerprint,
         version: { increment: 1 },
       },
-      include: { institution: true },
+      include: listingInclude,
     });
+
+    if (input.positions) {
+      await this.replacePositions(id, input.positions);
+    }
 
     await this.prisma.listingRevision.create({
       data: {
@@ -152,13 +188,9 @@ export class ListingsService {
       data: { updatedFlag: true },
     });
 
-    return updated;
+    return this.get(id);
   }
 
-  /**
-   * Dedup: aynı fingerprint → update+revision.
-   * Aynı kurum/unvan ama yeni başvuru penceresi → yeni listing (eski CLOSED).
-   */
   async upsertFromSource(input: UpsertListingInput) {
     let institutionId = input.institutionId;
     if (!institutionId && input.institutionName) {
@@ -224,7 +256,6 @@ export class ListingsService {
       return this.update(existing.id, { ...input, institutionId });
     }
 
-    // Soft duplicate check
     const similar = await this.prisma.listing.findFirst({
       where: {
         institutionId: institutionId ?? undefined,
@@ -280,14 +311,27 @@ export class ListingsService {
           applyStartAt: input.applyStartAt ?? undefined,
           applyEndAt: input.applyEndAt ?? undefined,
           resultAt: input.resultAt ?? undefined,
+          examAt: input.examAt ?? undefined,
+          resultAnnounceAt: input.resultAnnounceAt ?? undefined,
+          applicationPlace: input.applicationPlace,
+          applicationMethods: input.applicationMethods ?? [],
+          requiredDocuments: input.requiredDocuments ?? [],
+          generalRequirements: input.generalRequirements,
+          specialRequirements: input.specialRequirements,
+          examTopics: input.examTopics,
+          evaluationNotes: input.evaluationNotes,
           externalKey: input.externalKey,
           fingerprint: input.fingerprint,
           possibleDup: input.possibleDup ?? false,
           listingGroupId: input.listingGroupId,
           requiredSkills: input.requiredSkills ?? [],
         },
-        include: { institution: true },
+        include: listingInclude,
       });
+
+      if (input.positions?.length) {
+        await this.replacePositions(created.id, input.positions);
+      }
 
       await this.prisma.listingRevision.create({
         data: {
@@ -297,13 +341,34 @@ export class ListingsService {
         },
       });
 
-      return created;
+      return this.get(created.id);
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         throw new ConflictException('Aynı fingerprint veya external key ile ilan zaten var');
       }
       throw err;
     }
+  }
+
+  private async replacePositions(listingId: string, positions: ParsedPosition[]) {
+    await this.prisma.listingPosition.deleteMany({ where: { listingId } });
+    if (!positions.length) return;
+    await this.prisma.listingPosition.createMany({
+      data: positions.map((p, i) => ({
+        listingId,
+        sequenceNo: p.sequenceNo ?? i + 1,
+        title: p.title,
+        titleNorm: normalizeText(p.title),
+        serviceClass: p.serviceClass,
+        grade: p.grade,
+        quota: p.quota,
+        educationRequirement: p.educationRequirement,
+        gender: p.gender,
+        kpssScoreType: p.kpssScoreType,
+        kpssMinScore: p.kpssMinScore,
+        skillsTags: p.skillsTags ?? [],
+      })),
+    });
   }
 
   async remove(id: string) {

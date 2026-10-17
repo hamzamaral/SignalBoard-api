@@ -3,22 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { EnvConfig } from '../../config/env.validation';
 import { SettingsService } from '../settings/settings.service';
-
-export type ParsedListingFields = {
-  institutionName?: string;
-  title?: string;
-  position?: string;
-  city?: string;
-  educationLevel?: string;
-  kpssScoreType?: string;
-  kpssMinScore?: number;
-  quota?: number;
-  applyStartAt?: string;
-  applyEndAt?: string;
-  resultAt?: string;
-  url?: string;
-  requiredSkills?: string[];
-};
+import { ParsedListingFields } from './parsed-types';
 
 @Injectable()
 export class LlmService {
@@ -33,12 +18,18 @@ export class LlmService {
     const llm = await this.settings.getLlmConfig();
     if (llm.provider === 'NONE') return null;
 
-    const prompt = `Aşağıdaki Türkçe kamu personel ilan metninden JSON çıkar.
-Sadece JSON döndür. Anahtarlar: institutionName, title, position, city, educationLevel, kpssScoreType, kpssMinScore, quota, applyStartAt (ISO), applyEndAt (ISO), resultAt (ISO), url, requiredSkills (string[]).
+    const prompt = `Aşağıdaki Türkçe kamu personel ilan metninden SADECE JSON çıkar.
+Anahtarlar:
+institutionName, title, city, url,
+applyStartAt, applyEndAt, examAt, resultAnnounceAt (ISO tarih),
+applicationPlace, applicationMethods (string[]: elektronik|sahsen|posta),
+requiredDocuments (string[]), generalRequirements, specialRequirements,
+examTopics, evaluationNotes,
+positions: [{ sequenceNo, title, serviceClass, grade, quota, educationRequirement, gender, kpssScoreType, kpssMinScore }]
 
 Metin:
 """
-${text.slice(0, 8000)}
+${text.slice(0, 12000)}
 """`;
 
     try {
@@ -46,13 +37,8 @@ ${text.slice(0, 8000)}
         const base = this.config.get('OLLAMA_BASE_URL', { infer: true });
         const res = await axios.post(
           `${base}/api/generate`,
-          {
-            model: llm.model || 'llama3.2',
-            prompt,
-            stream: false,
-            format: 'json',
-          },
-          { timeout: 60_000 },
+          { model: llm.model || 'llama3.2', prompt, stream: false, format: 'json' },
+          { timeout: 90_000 },
         );
         return JSON.parse(res.data.response) as ParsedListingFields;
       }
@@ -62,11 +48,9 @@ ${text.slice(0, 8000)}
         const res = await axios.post(
           `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${llm.apiKey}`,
           { contents: [{ parts: [{ text: prompt }] }] },
-          { timeout: 60_000 },
+          { timeout: 90_000 },
         );
-        const raw =
-          res.data?.candidates?.[0]?.content?.parts?.[0]?.text ??
-          '{}';
+        const raw = res.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
         return JSON.parse(stripFences(raw)) as ParsedListingFields;
       }
 
@@ -80,7 +64,7 @@ ${text.slice(0, 8000)}
           },
           {
             headers: { Authorization: `Bearer ${llm.apiKey}` },
-            timeout: 60_000,
+            timeout: 90_000,
           },
         );
         return JSON.parse(res.data.choices[0].message.content) as ParsedListingFields;

@@ -131,37 +131,47 @@ model InstitutionAlias {
 }
 
 model Listing {
-  id              String        @id @default(uuid()) @db.Uuid
-  institutionId   String?       @map("institution_id") @db.Uuid
-  kind            ListingKind   @default(PUBLIC)
-  source          ListingSource @default(MANUAL)
-  status          ListingStatus @default(OPEN)
-  title           String
-  titleNorm       String        @map("title_norm")
-  position        String?
-  positionNorm    String?       @map("position_norm")
-  description     String?       @db.Text
-  rawText         String?       @map("raw_text") @db.Text
-  url             String?
-  city            String?
-  educationLevel  String?       @map("education_level")
-  kpssScoreType   String?       @map("kpss_score_type")
-  kpssMinScore    Decimal?      @map("kpss_min_score") @db.Decimal(6, 3)
-  quota           Int?
-  publishedAt     DateTime?     @map("published_at")
-  applyStartAt    DateTime?     @map("apply_start_at")
-  applyEndAt      DateTime?     @map("apply_end_at")
-  resultAt        DateTime?     @map("result_at")
-  externalKey     String?       @map("external_key")
-  fingerprint     String
-  listingGroupId  String?       @map("listing_group_id") @db.Uuid
-  version         Int           @default(1)
-  possibleDup     Boolean       @default(false) @map("possible_dup")
-  requiredSkills  String[]      @default([]) @map("required_skills")
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
+  id                    String        @id @default(uuid()) @db.Uuid
+  institutionId         String?       @map("institution_id") @db.Uuid
+  kind                  ListingKind   @default(PUBLIC)
+  source                ListingSource @default(MANUAL)
+  status                ListingStatus @default(OPEN)
+  title                 String
+  titleNorm             String        @map("title_norm")
+  position              String?
+  positionNorm          String?       @map("position_norm")
+  description           String?       @db.Text
+  rawText               String?       @map("raw_text") @db.Text
+  url                   String?
+  city                  String?
+  educationLevel        String?       @map("education_level")
+  kpssScoreType         String?       @map("kpss_score_type")
+  kpssMinScore          Decimal?      @map("kpss_min_score") @db.Decimal(6, 3)
+  quota                 Int?
+  publishedAt           DateTime?     @map("published_at")
+  applyStartAt          DateTime?     @map("apply_start_at")
+  applyEndAt            DateTime?     @map("apply_end_at")
+  resultAt              DateTime?     @map("result_at")
+  examAt                DateTime?     @map("exam_at")
+  resultAnnounceAt      DateTime?     @map("result_announce_at")
+  applicationPlace      String?       @map("application_place") @db.Text
+  applicationMethods    String[]      @default([]) @map("application_methods")
+  requiredDocuments     String[]      @default([]) @map("required_documents")
+  generalRequirements   String?       @map("general_requirements") @db.Text
+  specialRequirements   String?       @map("special_requirements") @db.Text
+  examTopics            String?       @map("exam_topics") @db.Text
+  evaluationNotes       String?       @map("evaluation_notes") @db.Text
+  externalKey           String?       @map("external_key")
+  fingerprint           String
+  listingGroupId        String?       @map("listing_group_id") @db.Uuid
+  version               Int           @default(1)
+  possibleDup           Boolean       @default(false) @map("possible_dup")
+  requiredSkills        String[]      @default([]) @map("required_skills")
+  createdAt             DateTime      @default(now()) @map("created_at")
+  updatedAt             DateTime      @updatedAt @map("updated_at")
 
   institution  Institution?       @relation(fields: [institutionId], references: [id])
+  positions    ListingPosition[]
   revisions    ListingRevision[]
   userListings UserListing[]
   reminders    Reminder[]
@@ -172,6 +182,31 @@ model Listing {
   @@index([applyEndAt])
   @@index([institutionId])
   @@map("listings")
+}
+
+model ListingPosition {
+  id                    String   @id @default(uuid()) @db.Uuid
+  listingId             String   @map("listing_id") @db.Uuid
+  sequenceNo            Int      @default(1) @map("sequence_no")
+  title                 String
+  titleNorm             String   @map("title_norm")
+  serviceClass          String?  @map("service_class")
+  grade                 Int?
+  quota                 Int?
+  educationRequirement  String?  @map("education_requirement") @db.Text
+  gender                String?
+  kpssScoreType         String?  @map("kpss_score_type")
+  kpssMinScore          Decimal? @map("kpss_min_score") @db.Decimal(6, 3)
+  skillsTags            String[] @default([]) @map("skills_tags")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  listing      Listing       @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  userListings UserListing[]
+
+  @@index([listingId])
+  @@index([titleNorm])
+  @@map("listing_positions")
 }
 
 model ListingRevision {
@@ -206,18 +241,20 @@ model UserProfile {
 }
 
 model UserListing {
-  id        String         @id @default(uuid()) @db.Uuid
-  userId    String         @map("user_id") @db.Uuid
-  listingId String         @map("listing_id") @db.Uuid
-  status    PipelineStatus @default(NEW)
-  notes     String?
-  matchScore Int?          @map("match_score")
-  updatedFlag Boolean      @default(false) @map("updated_flag")
-  createdAt DateTime       @default(now()) @map("created_at")
-  updatedAt DateTime       @updatedAt @map("updated_at")
+  id          String         @id @default(uuid()) @db.Uuid
+  userId      String         @map("user_id") @db.Uuid
+  listingId   String         @map("listing_id") @db.Uuid
+  positionId  String?        @map("position_id") @db.Uuid
+  status      PipelineStatus @default(NEW)
+  notes       String?
+  matchScore  Int?           @map("match_score")
+  updatedFlag Boolean        @default(false) @map("updated_flag")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
 
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listing  Listing          @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  position ListingPosition? @relation(fields: [positionId], references: [id], onDelete: SetNull)
 
   @@unique([userId, listingId])
   @@index([userId, status])

@@ -12,48 +12,93 @@ export class PipelineService {
     private readonly reminders: RemindersService,
   ) {}
 
-  list(userId: string) {
+  list(userId: string, status?: PipelineStatus) {
     return this.prisma.userListing.findMany({
-      where: { userId },
-      include: { listing: { include: { institution: true } } },
+      where: { userId, status: status || undefined },
+      include: {
+        listing: {
+          include: {
+            institution: true,
+            positions: { orderBy: { sequenceNo: 'asc' } },
+          },
+        },
+        position: true,
+      },
       orderBy: { updatedAt: 'desc' },
     });
   }
 
-  async track(userId: string, listingId: string, status?: PipelineStatus) {
-    const listing = await this.prisma.listing.findUnique({ where: { id: listingId } });
+  async track(
+    userId: string,
+    listingId: string,
+    status?: PipelineStatus,
+    positionId?: string,
+  ) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { positions: true },
+    });
     if (!listing) throw new NotFoundException('İlan bulunamadı');
 
+    if (positionId) {
+      const ok = listing.positions.some((p) => p.id === positionId);
+      if (!ok) throw new NotFoundException('Kadro bulunamadı');
+    }
+
     const profile = await this.prisma.userProfile.findUnique({ where: { userId } });
-    const matchScore = profile ? this.matching.score(profile, listing).score : null;
+    const position = positionId
+      ? listing.positions.find((p) => p.id === positionId) ?? null
+      : null;
+    const matchScore = profile
+      ? this.matching.scorePosition(profile, listing, position).score
+      : null;
 
     const row = await this.prisma.userListing.upsert({
       where: { userId_listingId: { userId, listingId } },
       create: {
         userId,
         listingId,
+        positionId: positionId ?? null,
         status: status ?? PipelineStatus.REVIEW,
         matchScore,
       },
       update: {
         status: status ?? undefined,
+        positionId: positionId ?? undefined,
         matchScore: matchScore ?? undefined,
         updatedFlag: false,
       },
-      include: { listing: true },
+      include: {
+        listing: { include: { institution: true, positions: true } },
+        position: true,
+      },
     });
 
     await this.reminders.ensureDeadlineReminders(userId, listingId);
     return row;
   }
 
-  async updateStatus(userId: string, id: string, status: PipelineStatus, notes?: string) {
+  async updateStatus(
+    userId: string,
+    id: string,
+    status: PipelineStatus,
+    notes?: string,
+    positionId?: string,
+  ) {
     const row = await this.prisma.userListing.findFirst({ where: { id, userId } });
     if (!row) throw new NotFoundException('Kayıt bulunamadı');
     return this.prisma.userListing.update({
       where: { id },
-      data: { status, notes, updatedFlag: false },
-      include: { listing: true },
+      data: {
+        status,
+        notes,
+        positionId: positionId ?? undefined,
+        updatedFlag: false,
+      },
+      include: {
+        listing: { include: { institution: true, positions: true } },
+        position: true,
+      },
     });
   }
 }

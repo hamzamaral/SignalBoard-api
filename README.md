@@ -9,7 +9,8 @@ Companion UI: [SignalBoard-web](https://github.com/hamzamaral/SignalBoard-web)
 - NestJS 10 + Prisma 5 + PostgreSQL 16
 - JWT access + refresh rotation, RBAC (`ADMIN` / `USER`)
 - Swagger: `/api/docs`
-- Source adapters (most TR portals have no official open API; ingest uses adapters + paste-parse)
+- Source adapters (no official open API): `ilan.gov` + `kamuilan` + `yerelyonetimler` scrapers + paste-parse
+- Multi-position listings (`ListingPosition`) for memur kadro tables; LLM keys stay in encrypted DB settings (not GitHub)
 
 ## Quick start
 
