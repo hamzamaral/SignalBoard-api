@@ -45,6 +45,7 @@ enum PipelineStatus {
   WAITING_RESULT
   CLOSED
   CANNOT_APPLY
+  CANCELLED
 }
 
 enum LlmProvider {
