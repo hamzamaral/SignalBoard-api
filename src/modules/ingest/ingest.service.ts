@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { IlanGovAdapter } from './ilan-gov.adapter';
-import { KamuilanAdapter } from './kamuilan.adapter';
+import { KamuilanAdapter, type IngestSourceResult } from './kamuilan.adapter';
 import { YerelYonetimlerAdapter } from './yerel-yonetimler.adapter';
 
 @Injectable()
@@ -12,24 +12,47 @@ export class IngestService {
   ) {}
 
   async run(source?: string) {
-    const results: Record<string, unknown> = {};
+    const sources: IngestSourceResult[] = [];
     const all = !source;
 
     if (all || source === 'ILAN_GOV') {
-      results.ILAN_GOV = await this.ilanGov.fetchPersonnelAds();
+      sources.push(await this.ilanGov.fetchPersonnelAds());
     }
     if (all || source === 'KAMUILAN') {
-      results.KAMUILAN = await this.kamuilan.fetchActiveAds();
+      sources.push(await this.kamuilan.fetchActiveAds());
     }
     if (all || source === 'YEREL_YONETIMLER') {
-      results.YEREL_YONETIMLER = await this.yerel.fetchAnnouncements();
+      sources.push(await this.yerel.fetchAnnouncements());
     }
-    if (source && !results[source] && !['ILAN_GOV', 'KAMUILAN', 'YEREL_YONETIMLER'].includes(source)) {
-      results[source] = {
-        status: 'manual',
-        message: 'Bu kaynak için otomatik adapter yok; paste-parse veya manuel kayıt kullanın',
-      };
+    if (
+      source &&
+      sources.length === 0 &&
+      !['ILAN_GOV', 'KAMUILAN', 'YEREL_YONETIMLER'].includes(source)
+    ) {
+      sources.push({
+        source,
+        upserted: 0,
+        rawCount: 0,
+        error: 'Bu kaynak için otomatik adapter yok',
+        hint: 'Paste-parse veya manuel kayıt kullanın',
+      });
     }
-    return results;
+
+    const totalUpserted = sources.reduce((n, s) => n + s.upserted, 0);
+    const totalRaw = sources.reduce((n, s) => n + s.rawCount, 0);
+    const failed = sources.filter((s) => s.upserted === 0 && (s.error || s.rawCount === 0));
+
+    return {
+      sources,
+      totalUpserted,
+      totalRaw,
+      ok: totalUpserted > 0,
+      summary:
+        totalUpserted > 0
+          ? `${totalUpserted} kayıt (ham ${totalRaw})`
+          : failed.length
+            ? `Çekilemedi: ${failed.map((f) => f.source).join(', ')}`
+            : 'Kayıt yok',
+    };
   }
 }

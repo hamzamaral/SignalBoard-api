@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { ListingSource } from '@prisma/client';
 import { ListingsService } from '../listings/listings.service';
+import type { IngestSourceResult } from './kamuilan.adapter';
 
 /** ilan.gov.tr site backend (dokümante resmi open API değil). */
 @Injectable()
@@ -10,9 +11,8 @@ export class IlanGovAdapter {
 
   constructor(private readonly listings: ListingsService) {}
 
-  async fetchPersonnelAds(max = 40) {
+  async fetchPersonnelAds(max = 80): Promise<IngestSourceResult> {
     const url = 'https://www.ilan.gov.tr/api/api/services/app/Ad/AdsByFilter';
-    // Personel kategorileri (site tarafında değişebilir)
     const categoryAttempts = [[44], [5], [693], [672], []];
 
     let lastError: string | undefined;
@@ -46,9 +46,6 @@ export class IlanGovAdapter {
         for (const item of items.slice(0, max)) {
           const id = String(item.id ?? item.adId ?? item.hashId ?? '');
           const title = String(item.title ?? item.adTitle ?? 'ilan.gov ilanı');
-          if (!/personel|memur|sözleşmeli|kadrol|alım|işçi/i.test(title) && txv.length === 0) {
-            // broad fetch: soft filter
-          }
           const advertiser = String(
             item.advertiserName ?? item.companyName ?? item.ownerName ?? 'Bilinmeyen kurum',
           );
@@ -69,14 +66,30 @@ export class IlanGovAdapter {
             publishedAt: item.publishTime ? new Date(String(item.publishTime)) : null,
           });
           upserted += 1;
-          await new Promise((r) => setTimeout(r, 80));
+          await new Promise((r) => setTimeout(r, 60));
         }
-        return { upserted, rawCount: items.length, category: txv };
+
+        if (upserted === 0) {
+          return {
+            source: 'ILAN_GOV',
+            upserted: 0,
+            rawCount: items.length,
+            error: 'API yanıt verdi ama kaydedilecek ilan yok',
+            hint: 'Kategori filtresi boş gelebilir; yapıştır ile ekleyin.',
+          };
+        }
+        return { source: 'ILAN_GOV', upserted, rawCount: items.length };
       } catch (err) {
         lastError = err instanceof Error ? err.message : String(err);
         this.logger.warn(`ilan.gov attempt failed (${txv}): ${lastError}`);
       }
     }
-    return { upserted: 0, error: lastError };
+    return {
+      source: 'ILAN_GOV',
+      upserted: 0,
+      rawCount: 0,
+      error: lastError ?? 'Bilinmeyen hata',
+      hint: 'ilan.gov API erişilemedi. Daha sonra tekrar deneyin veya yapıştırın.',
+    };
   }
 }

@@ -63,9 +63,10 @@ export class ListingsService {
     kind?: ListingKind;
     status?: ListingStatus;
     source?: ListingSource;
+    userId?: string;
   }) {
     const page = params.page ?? 1;
-    const limit = params.limit ?? 20;
+    const limit = Math.min(params.limit ?? 20, 200);
     const where: Prisma.ListingWhereInput = {
       kind: params.kind,
       status: params.status,
@@ -83,14 +84,52 @@ export class ListingsService {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.listing.findMany({
         where,
-        include: listingInclude,
+        include: {
+          ...listingInclude,
+          ...(params.userId
+            ? {
+                userListings: {
+                  where: { userId: params.userId },
+                  take: 1,
+                },
+              }
+            : {}),
+        },
         orderBy: [{ applyEndAt: 'asc' }, { updatedAt: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
       }),
       this.prisma.listing.count({ where }),
     ]);
-    return { items, total, page, limit };
+
+    const mapped = items.map((item) => {
+      const { userListings, ...rest } = item as typeof item & {
+        userListings?: Array<{
+          id: string;
+          status: string;
+          applyChannel: string | null;
+          mailOk: boolean;
+          formOk: boolean;
+          updatedFlag: boolean;
+        }>;
+      };
+      const mine = userListings?.[0];
+      return {
+        ...rest,
+        myTracking: mine
+          ? {
+              id: mine.id,
+              status: mine.status,
+              applyChannel: mine.applyChannel,
+              mailOk: mine.mailOk,
+              formOk: mine.formOk,
+              updatedFlag: mine.updatedFlag,
+            }
+          : null,
+      };
+    });
+
+    return { items: mapped, total, page, limit };
   }
 
   async get(id: string) {

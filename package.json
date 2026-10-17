@@ -17,6 +17,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
+    "db:seed-tracker": "ts-node --transpile-only scripts/seed-tracker-rows.ts",
     "db:reset": "prisma migrate reset --force",
     "db:up": "docker compose up -d postgres",
     "postinstall": "prisma generate"

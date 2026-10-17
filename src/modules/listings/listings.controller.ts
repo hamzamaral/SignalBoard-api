@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ListingSource, Role } from '@prisma/client';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ParseService } from '../parse/parse.service';
 import { MatchingService } from '../matching/matching.service';
@@ -27,8 +28,8 @@ export class ListingsController {
   ) {}
 
   @Get()
-  list(@Query() query: ListListingsQueryDto) {
-    return this.listings.list(query);
+  list(@Query() query: ListListingsQueryDto, @CurrentUser('id') userId: string) {
+    return this.listings.list({ ...query, userId });
   }
 
   @Roles(Role.ADMIN)
