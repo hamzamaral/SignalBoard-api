@@ -2,9 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { ListingSource } from '@prisma/client';
-import { normalizeText } from '../../common/utils/normalize';
 import { ListingsService } from '../listings/listings.service';
 import { scrapeHttpsAgent } from './http-agent';
+import { stableKamuilanKey } from './ingest-write-logic';
 
 const MONTHS: Record<string, number> = {
   ocak: 0,
@@ -92,7 +92,7 @@ export class KamuilanAdapter {
       let duplicatesSkipped = 0;
       for (const item of items) {
         // Same carousel ad often has many ?kod= URLs — dedupe by org+title
-        const stableKey = `kamu:${normalizeText(item.org)}|${normalizeText(item.title)}`;
+        const stableKey = stableKamuilanKey(item.org, item.title);
         if (seen.has(stableKey)) {
           duplicatesSkipped += 1;
           continue;
