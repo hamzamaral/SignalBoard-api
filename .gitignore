@@ -7,3 +7,6 @@ coverage
 *.tsbuildinfo
 .idea
 .vscode
+
+# Local-only agent notes (do not push)
+AGENT_HANDOFF.md

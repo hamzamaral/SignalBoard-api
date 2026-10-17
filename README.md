@@ -9,7 +9,7 @@ Companion UI: [SignalBoard-web](https://github.com/hamzamaral/SignalBoard-web)
 - NestJS 10 + Prisma 5 + PostgreSQL 16
 - JWT access + refresh rotation, RBAC (`ADMIN` / `USER`)
 - Swagger: `/api/docs`
-- Source adapters (official open APIs are generally unavailable; see `AGENT_HANDOFF.md`)
+- Source adapters (most TR portals have no official open API; ingest uses adapters + paste-parse)
 
 ## Quick start
 
@@ -42,7 +42,3 @@ npm run dev
 - `GET/POST /pipeline`, `GET/POST /reminders`, `GET /reminders/export.ics`
 - `GET/PUT /settings/smtp|llm` (admin)
 - `POST /ingest/run?source=ILAN_GOV` (admin)
-
-## Notes for agents
-
-Read **[AGENT_HANDOFF.md](./AGENT_HANDOFF.md)** before changing code. Update it after meaningful work.
