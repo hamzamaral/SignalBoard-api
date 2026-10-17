@@ -38,6 +38,13 @@ export class RemindersService {
     });
   }
 
+  async remove(userId: string, id: string) {
+    const row = await this.prisma.reminder.findFirst({ where: { id, userId } });
+    if (!row) throw new NotFoundException('Hatırlatıcı bulunamadı');
+    await this.prisma.reminder.delete({ where: { id } });
+    return { ok: true };
+  }
+
   /** İleri tarihli başvuru bitişleri için otomatik hatırlatıcılar (14/7/3/1 gün). */
   async ensureDeadlineReminders(userId: string, listingId: string) {
     const listing = await this.prisma.listing.findUnique({ where: { id: listingId } });

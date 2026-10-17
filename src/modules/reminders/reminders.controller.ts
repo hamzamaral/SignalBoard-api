@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Param, Patch, Post, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Param, Patch, Post, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsDateString, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
 import { Response } from 'express';
@@ -54,5 +54,10 @@ export class RemindersController {
   @Patch(':id/complete')
   complete(@CurrentUser('id') userId: string, @Param('id') id: string) {
     return this.reminders.complete(userId, id);
+  }
+
+  @Delete(':id')
+  remove(@CurrentUser('id') userId: string, @Param('id') id: string) {
+    return this.reminders.remove(userId, id);
   }
 }

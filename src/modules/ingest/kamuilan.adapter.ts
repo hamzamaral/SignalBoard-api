@@ -3,6 +3,7 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { ListingSource } from '@prisma/client';
 import { ListingsService } from '../listings/listings.service';
+import { scrapeHttpsAgent } from './http-agent';
 
 const MONTHS: Record<string, number> = {
   ocak: 0,
@@ -48,6 +49,7 @@ export class KamuilanAdapter {
           'User-Agent': 'SignalBoardBot/1.0 (+https://github.com/hamzamaral/SignalBoard-api)',
           Accept: 'text/html',
         },
+        httpsAgent: scrapeHttpsAgent,
       });
       const $ = cheerio.load(html);
       const items: Array<{ title: string; org: string; dates: string; link: string }> = [];

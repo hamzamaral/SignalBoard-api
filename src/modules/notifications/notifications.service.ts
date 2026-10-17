@@ -35,7 +35,16 @@ export class NotificationsService {
     const smtp = await this.settings.getSmtpConfig();
     if (!smtp?.host) {
       this.logger.warn('SMTP not configured; leaving notifications pending');
-      return { processed: 0, skipped: pending.length };
+      return {
+        processed: 0,
+        skipped: pending.length,
+        pending: pending.length,
+        ok: false,
+        message:
+          pending.length === 0
+            ? 'Kuyruk boş. SMTP ayarlanmamış; bildirim yok.'
+            : `${pending.length} mail bekliyor ama SMTP yapılandırılmamış. Admin → SMTP kaydedin.`,
+      };
     }
 
     const transporter = nodemailer.createTransport({
@@ -69,6 +78,17 @@ export class NotificationsService {
         });
       }
     }
-    return { processed, skipped: 0 };
+    return {
+      processed,
+      skipped: 0,
+      pending: pending.length,
+      ok: processed > 0,
+      message:
+        processed > 0
+          ? `${processed} mail gönderildi`
+          : pending.length === 0
+            ? 'Kuyruk boş — gönderilecek mail yok.'
+            : 'Gönderim başarısız; SMTP / alıcıyı kontrol edin.',
+    };
   }
 }

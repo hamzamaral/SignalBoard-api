@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { ListingSource } from '@prisma/client';
 import { ListingsService } from '../listings/listings.service';
+import { scrapeHttpsAgent } from './http-agent';
 import type { IngestSourceResult } from './kamuilan.adapter';
 
 /** ilan.gov.tr site backend (dokümante resmi open API değil). */
@@ -36,6 +37,7 @@ export class IlanGovAdapter {
             'User-Agent': 'SignalBoardBot/1.0 (+https://github.com/hamzamaral/SignalBoard-api)',
           },
           timeout: 30_000,
+          httpsAgent: scrapeHttpsAgent,
         });
 
         const items: Array<Record<string, unknown>> =
