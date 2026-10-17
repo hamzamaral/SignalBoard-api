@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: api-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: signalboard
+          POSTGRES_PASSWORD: signalboard
+          POSTGRES_DB: signalboard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U signalboard -d signalboard"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://signalboard:signalboard@localhost:5432/signalboard?schema=public
+      JWT_ACCESS_SECRET: ci-signalboard-access-secret-32chars
+      JWT_REFRESH_SECRET: ci-signalboard-refresh-secret-32chr
+      SETTINGS_ENCRYPTION_KEY: ci-settings-encryption-key-32b!
+      SEED_ON_EMPTY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma migrate deploy
+      - run: npm test -- --passWithNoTests
+      - run: npm run build
+
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: signalboard-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
