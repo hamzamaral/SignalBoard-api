@@ -10,7 +10,7 @@ type TrackFields = {
   applyChannel?: string;
   mailOk?: boolean;
   formOk?: boolean;
-  notes?: string;
+  notes?: string | null;
 };
 
 @Injectable()
@@ -68,6 +68,7 @@ export class PipelineService {
         applyChannel: fields.applyChannel ?? null,
         mailOk: fields.mailOk ?? false,
         formOk: fields.formOk ?? false,
+        notes: fields.notes ?? null,
       },
       update: {
         status: fields.status ?? undefined,
@@ -76,6 +77,7 @@ export class PipelineService {
         applyChannel: fields.applyChannel ?? undefined,
         mailOk: fields.mailOk ?? undefined,
         formOk: fields.formOk ?? undefined,
+        notes: fields.notes === undefined ? undefined : fields.notes,
         updatedFlag: false,
       },
       include: {

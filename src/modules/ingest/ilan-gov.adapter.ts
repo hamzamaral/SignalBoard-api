@@ -44,7 +44,8 @@ export class IlanGovAdapter {
           data?.result?.items ?? data?.result?.ads ?? data?.items ?? [];
         if (!items.length && txv.length) continue;
 
-        let upserted = 0;
+        let created = 0;
+        let updated = 0;
         for (const item of items.slice(0, max)) {
           const id = String(item.id ?? item.adId ?? item.hashId ?? '');
           const title = String(item.title ?? item.adTitle ?? 'ilan.gov ilanı');
@@ -57,7 +58,7 @@ export class IlanGovAdapter {
               ? `https://www.ilan.gov.tr/ilan/${id}`
               : undefined;
 
-          await this.listings.upsertFromSource({
+          const { created: isNew } = await this.listings.upsertFromSourceMeta({
             source: ListingSource.ILAN_GOV,
             externalKey: id || undefined,
             title,
@@ -67,10 +68,12 @@ export class IlanGovAdapter {
             rawText: JSON.stringify(item).slice(0, 5000),
             publishedAt: item.publishTime ? new Date(String(item.publishTime)) : null,
           });
-          upserted += 1;
+          if (isNew) created += 1;
+          else updated += 1;
           await new Promise((r) => setTimeout(r, 60));
         }
 
+        const upserted = created + updated;
         if (upserted === 0) {
           return {
             source: 'ILAN_GOV',
@@ -80,7 +83,14 @@ export class IlanGovAdapter {
             hint: 'Kategori filtresi boş gelebilir; yapıştır ile ekleyin.',
           };
         }
-        return { source: 'ILAN_GOV', upserted, rawCount: items.length };
+        return {
+          source: 'ILAN_GOV',
+          upserted,
+          created,
+          updated,
+          rawCount: items.length,
+          hint: `${created} yeni · ${updated} güncellendi (çift kayıt yok)`,
+        };
       } catch (err) {
         lastError = err instanceof Error ? err.message : String(err);
         this.logger.warn(`ilan.gov attempt failed (${txv}): ${lastError}`);

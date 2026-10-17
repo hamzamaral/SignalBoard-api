@@ -28,6 +28,24 @@ export class ListListingsQueryDto extends PaginationDto {
   @IsOptional()
   @IsEnum(ListingSource)
   source?: ListingSource;
+
+  /** Bizim sisteme eklenme tarihi (YYYY-MM-DD) */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  createdFrom?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  createdTo?: string;
+}
+
+export class EnrichListingDto {
+  @ApiPropertyOptional({ description: 'İlan metni; boşsa mevcut rawText kullanılır' })
+  @IsOptional()
+  @IsString()
+  text?: string;
 }
 
 export class CreateListingDto {

@@ -39,17 +39,21 @@ export class IngestService {
     }
 
     const totalUpserted = sources.reduce((n, s) => n + s.upserted, 0);
+    const totalCreated = sources.reduce((n, s) => n + (s.created ?? 0), 0);
+    const totalUpdated = sources.reduce((n, s) => n + (s.updated ?? 0), 0);
     const totalRaw = sources.reduce((n, s) => n + s.rawCount, 0);
     const failed = sources.filter((s) => s.upserted === 0 && (s.error || s.rawCount === 0));
 
     return {
       sources,
       totalUpserted,
+      totalCreated,
+      totalUpdated,
       totalRaw,
       ok: totalUpserted > 0,
       summary:
         totalUpserted > 0
-          ? `${totalUpserted} kayıt (ham ${totalRaw})`
+          ? `${totalCreated} yeni · ${totalUpdated} güncellendi (ham ${totalRaw})`
           : failed.length
             ? `Çekilemedi: ${failed.map((f) => f.source).join(', ')}`
             : 'Kayıt yok',

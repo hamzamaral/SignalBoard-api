@@ -14,7 +14,12 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ParseService } from '../parse/parse.service';
 import { MatchingService } from '../matching/matching.service';
-import { CreateListingDto, ListListingsQueryDto, PasteParseDto } from './dto/listing.dto';
+import {
+  CreateListingDto,
+  EnrichListingDto,
+  ListListingsQueryDto,
+  PasteParseDto,
+} from './dto/listing.dto';
 import { ListingsService } from './listings.service';
 
 @ApiTags('listings')
@@ -58,9 +63,14 @@ export class ListingsController {
     return listing;
   }
 
+  @Post(':id/enrich')
+  enrich(@Param('id') id: string, @Body() dto: EnrichListingDto) {
+    return this.parse.enrichListing(id, dto.text);
+  }
+
   @Get(':id')
-  get(@Param('id') id: string) {
-    return this.listings.get(id);
+  get(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.listings.get(id, userId);
   }
 
   @Roles(Role.ADMIN)

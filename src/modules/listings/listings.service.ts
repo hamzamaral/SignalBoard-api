@@ -64,13 +64,25 @@ export class ListingsService {
     status?: ListingStatus;
     source?: ListingSource;
     userId?: string;
+    createdFrom?: string;
+    createdTo?: string;
   }) {
     const page = params.page ?? 1;
     const limit = Math.min(params.limit ?? 20, 200);
+    const createdAt =
+      params.createdFrom || params.createdTo
+        ? {
+            gte: params.createdFrom ? new Date(params.createdFrom) : undefined,
+            lte: params.createdTo
+              ? new Date(`${params.createdTo}T23:59:59.999`)
+              : undefined,
+          }
+        : undefined;
     const where: Prisma.ListingWhereInput = {
       kind: params.kind,
       status: params.status,
       source: params.source,
+      createdAt,
       OR: params.q
         ? [
             { title: { contains: params.q, mode: 'insensitive' } },
@@ -132,16 +144,44 @@ export class ListingsService {
     return { items: mapped, total, page, limit };
   }
 
-  async get(id: string) {
+  async get(id: string, userId?: string) {
     const listing = await this.prisma.listing.findUnique({
       where: { id },
       include: {
         ...listingInclude,
         revisions: { orderBy: { version: 'desc' }, take: 10 },
+        ...(userId
+          ? { userListings: { where: { userId }, take: 1 } }
+          : {}),
       },
     });
     if (!listing) throw new NotFoundException('İlan bulunamadı');
-    return listing;
+    const { userListings, ...rest } = listing as typeof listing & {
+      userListings?: Array<{
+        id: string;
+        status: string;
+        notes: string | null;
+        applyChannel: string | null;
+        mailOk: boolean;
+        formOk: boolean;
+        updatedFlag: boolean;
+      }>;
+    };
+    const mine = userListings?.[0];
+    return {
+      ...rest,
+      myTracking: mine
+        ? {
+            id: mine.id,
+            status: mine.status,
+            notes: mine.notes,
+            applyChannel: mine.applyChannel,
+            mailOk: mine.mailOk,
+            formOk: mine.formOk,
+            updatedFlag: mine.updatedFlag,
+          }
+        : null,
+    };
   }
 
   async createManual(input: UpsertListingInput) {
@@ -231,17 +271,23 @@ export class ListingsService {
   }
 
   async upsertFromSource(input: UpsertListingInput) {
+    const { listing } = await this.upsertFromSourceMeta(input);
+    return listing;
+  }
+
+  /** Same as upsertFromSource but reports whether a new row was created. */
+  async upsertFromSourceMeta(input: UpsertListingInput) {
     let institutionId = input.institutionId;
     if (!institutionId && input.institutionName) {
       const found = await this.institutions.resolveByName(input.institutionName);
       if (found) {
         institutionId = found.id;
       } else {
-        const created = await this.institutions.create({
+        const createdInst = await this.institutions.create({
           name: input.institutionName,
           city: input.city,
         });
-        institutionId = created.id;
+        institutionId = createdInst.id;
       }
     }
 
@@ -252,7 +298,8 @@ export class ListingsService {
         },
       });
       if (byExternal) {
-        return this.update(byExternal.id, { ...input, institutionId });
+        const listing = await this.update(byExternal.id, { ...input, institutionId });
+        return { listing, created: false };
       }
     }
 
@@ -277,7 +324,7 @@ export class ListingsService {
           where: { id: existing.id },
           data: { status: ListingStatus.CLOSED },
         });
-        return this.createNew({
+        const listing = await this.createNew({
           ...input,
           institutionId,
           fingerprint: buildFingerprint([
@@ -290,9 +337,11 @@ export class ListingsService {
           ]),
           listingGroupId: existing.listingGroupId ?? existing.id,
         });
+        return { listing, created: true };
       }
 
-      return this.update(existing.id, { ...input, institutionId });
+      const listing = await this.update(existing.id, { ...input, institutionId });
+      return { listing, created: false };
     }
 
     const similar = await this.prisma.listing.findFirst({
@@ -310,13 +359,14 @@ export class ListingsService {
       },
     });
 
-    return this.createNew({
+    const listing = await this.createNew({
       ...input,
       institutionId,
       fingerprint,
       possibleDup: Boolean(similar),
       listingGroupId: similar?.listingGroupId ?? similar?.id,
     });
+    return { listing, created: true };
   }
 
   private async createNew(

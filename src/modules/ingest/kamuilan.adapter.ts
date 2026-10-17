@@ -29,6 +29,10 @@ const MONTHS: Record<string, number> = {
 export type IngestSourceResult = {
   source: string;
   upserted: number;
+  created?: number;
+  updated?: number;
+  duplicatesSkipped?: number;
+  uniqueCount?: number;
   rawCount: number;
   error?: string;
   hint?: string;
@@ -82,13 +86,18 @@ export class KamuilanAdapter {
       }
 
       const seen = new Set<string>();
-      let upserted = 0;
+      let created = 0;
+      let updated = 0;
+      let duplicatesSkipped = 0;
       for (const item of items) {
         const key = item.link || `${item.org}|${item.title}`;
-        if (seen.has(key)) continue;
+        if (seen.has(key)) {
+          duplicatesSkipped += 1;
+          continue;
+        }
         seen.add(key);
         const { start, end, label } = parseDateRange(item.dates);
-        await this.listings.upsertFromSource({
+        const { created: isNew } = await this.listings.upsertFromSourceMeta({
           source: ListingSource.KAMUILAN,
           externalKey: item.link || undefined,
           title: item.title,
@@ -99,10 +108,12 @@ export class KamuilanAdapter {
           publishedAt: start,
           rawText: `${item.org} — ${item.title} — ${label || item.dates}`,
         });
-        upserted += 1;
+        if (isNew) created += 1;
+        else updated += 1;
         await sleep(80);
       }
 
+      const upserted = created + updated;
       if (upserted === 0) {
         return {
           source: 'KAMUILAN',
@@ -114,7 +125,16 @@ export class KamuilanAdapter {
             : undefined,
         };
       }
-      return { source: 'KAMUILAN', upserted, rawCount: items.length };
+      return {
+        source: 'KAMUILAN',
+        upserted,
+        created,
+        updated,
+        duplicatesSkipped,
+        uniqueCount: seen.size,
+        rawCount: items.length,
+        hint: `${created} yeni · ${updated} güncellendi · ${duplicatesSkipped} tekrar atlandı`,
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(`kamuilan scrape failed: ${message}`);

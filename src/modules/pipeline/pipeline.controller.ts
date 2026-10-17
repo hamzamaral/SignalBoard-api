@@ -28,6 +28,10 @@ class TrackDto {
   @IsOptional()
   @IsBoolean()
   formOk?: boolean;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }
 
 class StatusDto {
@@ -78,6 +82,7 @@ export class PipelineController {
       applyChannel: dto.applyChannel,
       mailOk: dto.mailOk,
       formOk: dto.formOk,
+      notes: dto.notes,
     });
   }
 
