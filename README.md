@@ -1,34 +1,48 @@
 # SignalBoard API
 
-Multi-source **public & private listing aggregator** with deadline tracking, profile-based matching, email alerts, and ICS reminders.
+Multi-source **public & private listing aggregator** with deadline tracking, profile-based matching, email alerts, and calendar reminders (ICS).
 
 Companion UI: [SignalBoard-web](https://github.com/hamzamaral/SignalBoard-web)
 
+## What it does
+
+```
+Kaynaklar / yapıştırılan metin
+        ↓
+  Parse (kurallar + opsiyonel LLM)
+        ↓
+  Listing + ListingPosition (çoklu kadro)
+        ↓
+  Kullanıcı profili → öneri skoru
+        ↓
+  Başvuru pipeline + hatırlatıcı / ICS + e-posta
+```
+
+- **Kamu + özel** ilanlar (ayrı `kind`)
+- Paste-parse: tam memur ilanı metninden kurum, tarihler, KPSS, kadro satırları
+- Scrape (özet): ilan.gov.tr, kamuilan.sbb.gov.tr, yerelyonetimler.csb.gov.tr — resmi open API yok
+- Admin SMTP / LLM ayarları DB’de **şifreli**; `.env` ve API key’ler GitHub’a gitmez
+
 ## Stack
 
-- NestJS 10 + Prisma 5 + PostgreSQL 16
-- JWT access + refresh rotation, RBAC (`ADMIN` / `USER`)
-- Swagger: `/api/docs`
-- Source adapters (no official open API): `ilan.gov` + `kamuilan` + `yerelyonetimler` scrapers + paste-parse
-- Multi-position listings (`ListingPosition`) for memur kadro tables; LLM keys stay in encrypted DB settings (not GitHub)
+NestJS 10 · Prisma 5 · PostgreSQL 16 · JWT + refresh rotation · Swagger `/api/docs`
 
 ## Quick start
 
 ```bash
 cp .env.example .env
-# If port 5432 is busy: POSTGRES_PORT=5433 docker compose up -d postgres
-# and set DATABASE_URL host port to 5433
+# Port 5432 doluysa: POSTGRES_PORT=5433 docker compose up -d postgres
 docker compose up -d postgres
 npm install
 npx prisma migrate dev
-npm run db:seed   # or SEED_ON_EMPTY on boot
+npm run db:seed
 npm run dev
 ```
 
-- API: http://localhost:3000/api/v1
-- Swagger: http://localhost:3000/api/docs
+- API: http://localhost:3000/api/v1  
+- Swagger: http://localhost:3000/api/docs  
 
-### Demo users
+### Demo
 
 | Email | Password | Role |
 |-------|----------|------|
@@ -37,9 +51,11 @@ npm run dev
 
 ## Main endpoints
 
-- `POST /auth/login|refresh|logout`, `GET /auth/me`
-- `GET/POST /listings`, `POST /listings/parse` (admin)
-- `GET /recommendations`, `GET/PUT /profile`
-- `GET/POST /pipeline`, `GET/POST /reminders`, `GET /reminders/export.ics`
-- `GET/PUT /settings/smtp|llm` (admin)
-- `POST /ingest/run?source=ILAN_GOV` (admin)
+- Auth: `POST /auth/login|refresh|logout`, `GET /auth/me`
+- Listings: `GET/POST /listings`, `POST /listings/parse` (admin; `kind` PUBLIC|PRIVATE)
+- Recommendations, profile, pipeline (başvurular), reminders + `GET /reminders/export.ics`
+- Admin settings SMTP/LLM, `POST /ingest/run?source=…`
+
+## Screens (web)
+
+See [SignalBoard-web README](https://github.com/hamzamaral/SignalBoard-web#screenshots--flow) for UI flow: Özet, Kamu/Özel, Başvurularım (Türkçe durumlar), Takvim, Admin.
