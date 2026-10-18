@@ -4,7 +4,7 @@ import * as cheerio from 'cheerio';
 import { ListingSource } from '@prisma/client';
 import { ListingsService } from '../listings/listings.service';
 import { scrapeHttpsAgent } from './http-agent';
-import type { IngestSourceResult } from './kamuilan.adapter';
+import { monthIndex, type IngestSourceResult } from './kamuilan.adapter';
 
 @Injectable()
 export class YerelYonetimlerAdapter {
@@ -12,18 +12,21 @@ export class YerelYonetimlerAdapter {
 
   constructor(private readonly listings: ListingsService) {}
 
-  async fetchAnnouncements(max = 120): Promise<IngestSourceResult> {
+  async fetchAnnouncements(max = 500): Promise<IngestSourceResult> {
     const base = 'https://yerelyonetimler.csb.gov.tr/duyurular';
     try {
-      const items: Array<{ title: string; link: string }> = [];
-      // Ana liste + basit sayfa parametreleri (site destekliyorsa)
-      const pageUrls = [base, `${base}?page=1`, `${base}?page=2`, `${base}?sayfa=2`];
+      const items: YerelCard[] = [];
+      const seenLinks = new Set<string>();
+      const seenPages = new Set<number>();
+      const queue = [1];
 
-      for (const pageUrl of pageUrls) {
-        if (items.length >= max) break;
+      while (queue.length && seenPages.size < 40 && items.length < max) {
+        const page = queue.shift();
+        if (page == null || seenPages.has(page)) continue;
+        seenPages.add(page);
         let html: string;
         try {
-          const res = await axios.get(pageUrl, {
+          const res = await axios.get(`${base}/${page}`, {
             timeout: 30_000,
             headers: {
               'User-Agent': 'SignalBoardBot/1.0 (+https://github.com/hamzamaral/SignalBoard-api)',
@@ -32,19 +35,20 @@ export class YerelYonetimlerAdapter {
             httpsAgent: scrapeHttpsAgent,
           });
           html = res.data;
-        } catch {
+        } catch (err) {
+          this.logger.warn(`yerelyonetimler page ${page} failed: ${err instanceof Error ? err.message : err}`);
           continue;
         }
-        const $ = cheerio.load(html);
-        $('a').each((_, el) => {
-          if (items.length >= max) return;
-          const title = $(el).text().replace(/\s+/g, ' ').trim();
-          let link = $(el).attr('href') || '';
-          if (!/personel|memur|sözleşmeli|alım|ilan|işçi|kadrol/i.test(title)) return;
-          if (!link) return;
-          if (!link.startsWith('http')) link = new URL(link, base).toString();
-          items.push({ title, link: normalizeUrl(link) });
-        });
+        const cards = parseYerelAnnouncements(html);
+        if (!cards.length) continue;
+        for (const card of cards) {
+          if (seenLinks.has(card.link) || items.length >= max) continue;
+          seenLinks.add(card.link);
+          items.push(card);
+        }
+        for (const next of yerelPageNumbers(html)) {
+          if (!seenPages.has(next)) queue.push(next);
+        }
       }
 
       const seen = new Set<string>();
@@ -68,10 +72,10 @@ export class YerelYonetimlerAdapter {
           institutionName: institutionName.slice(0, 160),
           url: item.link,
           rawText: item.title,
+          publishedAt: item.publishedAt,
         });
         if (isNew) created += 1;
         else updated += 1;
-        await new Promise((r) => setTimeout(r, 60));
       }
 
       const upserted = created + updated;
@@ -100,10 +104,7 @@ export class YerelYonetimlerAdapter {
         duplicatesSkipped,
         uniqueCount: seen.size,
         rawCount: items.length,
-        hint:
-          updated > 0 || duplicatesSkipped > 0
-            ? `${created} yeni · ${updated} güncellendi · ${duplicatesSkipped} tekrar link atlandı (çift kayıt yok)`
-            : undefined,
+        hint: `${created} yeni · ${updated} güncellendi · ${seenPages.size} sayfa`,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -117,6 +118,54 @@ export class YerelYonetimlerAdapter {
       };
     }
   }
+}
+
+export type YerelCard = {
+  title: string;
+  link: string;
+  publishedAt: Date | null;
+};
+
+export function parseYerelAnnouncements(html: string): YerelCard[] {
+  const $ = cheerio.load(html);
+  const items: YerelCard[] = [];
+  $('a.duyurular-wrapper, a.duyurular-category-card-wrapper').each((_, el) => {
+    const card = $(el);
+    const title = collapse(
+      card.find('.info, .duyurular-category-card-body-wrapper p').first().text() || card.text(),
+    );
+    const href = card.attr('href') || '';
+    if (!title || !href) return;
+    const link = normalizeUrl(
+      href.startsWith('http') ? href : new URL(href, 'https://yerelyonetimler.csb.gov.tr/').toString(),
+    );
+    const dateText = collapse(card.find('.date, .duyurular-category-card-body-wrapper span').first().text());
+    items.push({ title: title.slice(0, 240), link, publishedAt: parseTurkishDate(dateText) });
+  });
+  return items;
+}
+
+export function yerelPageNumbers(html: string): number[] {
+  const pages = new Set<number>();
+  const $ = cheerio.load(html);
+  $('a').each((_, el) => {
+    const href = $(el).attr('href') || '';
+    const match = href.match(/\/duyurular\/(\d+)/);
+    if (match) pages.add(Number(match[1]));
+  });
+  return [...pages].filter((n) => n > 0).sort((a, b) => a - b);
+}
+
+export function parseTurkishDate(text: string): Date | null {
+  const match = text.match(/(\d{1,2})\s+([A-Za-zÇĞİÖŞÜçğıöşü]+)\s+(\d{4})/);
+  if (!match) return null;
+  const month = monthIndex(match[2]);
+  if (month === undefined) return null;
+  return new Date(Number(match[3]), month, Number(match[1]), 12, 0, 0, 0);
+}
+
+function collapse(value: string) {
+  return (value || '').replace(/\s+/g, ' ').trim();
 }
 
 function normalizeUrl(link: string) {

@@ -45,7 +45,7 @@ export class KamuilanAdapter {
 
   constructor(private readonly listings: ListingsService) {}
 
-  async fetchActiveAds(max = 100): Promise<IngestSourceResult> {
+  async fetchActiveAds(max = 200): Promise<IngestSourceResult> {
     const url = 'https://kamuilan.sbb.gov.tr/';
     try {
       const { data: html } = await axios.get(url, {
@@ -56,35 +56,7 @@ export class KamuilanAdapter {
         },
         httpsAgent: scrapeHttpsAgent,
       });
-      const $ = cheerio.load(html);
-      const items: Array<{ title: string; org: string; dates: string; link: string }> = [];
-
-      const selectors = ['ul.slides li', '.slides li', '.flexslider li', 'li'];
-      for (const sel of selectors) {
-        $(sel).each((_, el) => {
-          if (items.length >= max) return;
-          const org = $(el).find('h5 span.black, .black, h5 span').eq(0).text().trim()
-            || $(el).find('h5').clone().children().remove().end().text().trim();
-          const title =
-            $(el).find('h5 span.patrol, .patrol').first().text().trim() ||
-            $(el).find('h5').text().replace(org, '').replace(/\d{1,2}\s*[-–]\s*\d{1,2}.*/i, '').trim();
-          const dates =
-            $(el).find('h5 span.h5date, .h5date').first().text().trim() ||
-            ($(el).text().match(/(\d{1,2}\s*[-–]\s*\d{1,2}\s*\w+)/i)?.[1] ?? '');
-          let link = $(el).find('a').first().attr('href') || '';
-          if (!org && !title) return;
-          if (link && !link.startsWith('http')) {
-            link = new URL(link, url).toString();
-          }
-          items.push({
-            title: (title || org || 'Kamu ilanı').slice(0, 240),
-            org: (org || 'Bilinmeyen kurum').slice(0, 160),
-            dates,
-            link: link || url,
-          });
-        });
-        if (items.length > 0) break;
-      }
+      const items = parseKamuilanListings(html, max);
 
       const seen = new Set<string>();
       let created = 0;
@@ -151,7 +123,101 @@ export class KamuilanAdapter {
   }
 }
 
-/** Parse "14-28 Ekim", "2-13", "12-19 Ekim 2026" style ranges. */
+export type KamuilanCard = {
+  title: string;
+  org: string;
+  dates: string;
+  link: string;
+};
+
+const KAMUILAN_ORIGIN = 'https://kamuilan.sbb.gov.tr/';
+
+/**
+ * Prefer the full “Tüm ilanlar” list (`#nav2`). The homepage manşet carousel
+ * is only a subset and can omit listings published the same day.
+ */
+export function parseKamuilanListings(html: string, max = 200): KamuilanCard[] {
+  const $ = cheerio.load(html);
+  const fromList = parseNavList($, max);
+  if (fromList.length) return fromList;
+  return parseCarousel($, max);
+}
+
+function parseNavList($: cheerio.CheerioAPI, max: number): KamuilanCard[] {
+  const items: KamuilanCard[] = [];
+  $('#nav2 a.xx').each((_, el) => {
+    if (items.length >= max) return;
+    const card = $(el);
+    const org = collapse(card.find('p.alt_p1').first().text());
+    const dateText = collapse(card.find('p.alt_p2 em').first().text()).replace(/[()]/g, '').trim();
+    let title = collapse(
+      card.find('p.alt_p2').first().clone().children().remove().end().text(),
+    );
+    title = title.replace(/\(\s*\d{1,2}\s+\S+\s*[-–]\s*\d{1,2}\s+\S+.*?\)/g, '').trim();
+    if (org && title.toLocaleLowerCase('tr-TR').startsWith(org.toLocaleLowerCase('tr-TR'))) {
+      title = title.slice(org.length).trim();
+    }
+    if (!org && !title) return;
+    items.push({
+      title: (title || org || 'Kamu ilanı').slice(0, 240),
+      org: (org || 'Bilinmeyen kurum').slice(0, 160),
+      dates: dateText,
+      link: absoluteLink(card.attr('href') || ''),
+    });
+  });
+  return items;
+}
+
+function parseCarousel($: cheerio.CheerioAPI, max: number): KamuilanCard[] {
+  const items: KamuilanCard[] = [];
+  const selectors = ['ul.slides li', '.slides li', '.flexslider li'];
+  for (const sel of selectors) {
+    $(sel).each((_, el) => {
+      if (items.length >= max) return;
+      const org =
+        collapse($(el).find('h5 span.black, .black, h5 span').eq(0).text()) ||
+        collapse($(el).find('h5').clone().children().remove().end().text());
+      const title =
+        collapse($(el).find('h5 span.patrol, .patrol').first().text()) ||
+        collapse($(el).find('h5').text())
+          .replace(org, '')
+          .replace(/\d{1,2}\s*[-–]\s*\d{1,2}.*/i, '')
+          .trim();
+      const dates =
+        collapse($(el).find('h5 span.h5date, .h5date').first().text()) ||
+        ($(el).text().match(/(\d{1,2}\s*[-–]\s*\d{1,2}\s*\w+)/i)?.[1] ?? '');
+      if (!org && !title) return;
+      items.push({
+        title: (title || org || 'Kamu ilanı').slice(0, 240),
+        org: (org || 'Bilinmeyen kurum').slice(0, 160),
+        dates,
+        link: absoluteLink($(el).find('a').first().attr('href') || ''),
+      });
+    });
+    if (items.length > 0) break;
+  }
+  return items;
+}
+
+function absoluteLink(href: string) {
+  if (!href) return KAMUILAN_ORIGIN;
+  if (href.startsWith('http')) return href;
+  return new URL(href, KAMUILAN_ORIGIN).toString();
+}
+
+function collapse(value: string) {
+  return (value || '').replace(/\s+/g, ' ').trim();
+}
+
+export function monthIndex(name: string): number | undefined {
+  const key = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  return MONTHS[key];
+}
+
+/** Parse "14-28 Ekim", "18 Ekim - 1 Kasım", "2-13", "12-19 Ekim 2026". */
 export function parseDateRange(
   text: string,
   now = new Date(),
@@ -164,17 +230,32 @@ export function parseDateRange(
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
 
+  const acrossMonths = raw.match(
+    /(\d{1,2})\s+([A-Za-zÇĞİÖŞÜçğıöşü]+)\s*[-–]\s*(\d{1,2})\s+([A-Za-zÇĞİÖŞÜçğıöşü]+)(?:\s+(\d{4}))?/i,
+  );
+  if (acrossMonths) {
+    const dayStart = Number(acrossMonths[1]);
+    const startMonth = monthIndex(acrossMonths[2]);
+    const dayEnd = Number(acrossMonths[3]);
+    const endMonth = monthIndex(acrossMonths[4]);
+    if (startMonth === undefined || endMonth === undefined) {
+      return { start: null, end: null, label: raw };
+    }
+    let year = acrossMonths[5] ? Number(acrossMonths[5]) : now.getFullYear();
+    const start = new Date(year, startMonth, dayStart, 0, 0, 0, 0);
+    let endYear = year;
+    if (endMonth < startMonth || (endMonth === startMonth && dayEnd < dayStart)) endYear += 1;
+    const end = new Date(endYear, endMonth, dayEnd, 23, 59, 59, 999);
+    return { start, end, label: raw };
+  }
+
   const withMonth = raw.match(
     /(\d{1,2})\s*[-–]\s*(\d{1,2})\s+([A-Za-zÇĞİÖŞÜçğıöşü]+)(?:\s+(\d{4}))?/i,
   );
   if (withMonth) {
     const dayStart = Number(withMonth[1]);
     const dayEnd = Number(withMonth[2]);
-    const monthKey = withMonth[3]
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase();
-    const month = MONTHS[monthKey];
+    const month = monthIndex(withMonth[3]);
     if (month === undefined) return { start: null, end: null, label: raw };
     let year = withMonth[4] ? Number(withMonth[4]) : now.getFullYear();
     let start = new Date(year, month, dayStart, 0, 0, 0, 0);

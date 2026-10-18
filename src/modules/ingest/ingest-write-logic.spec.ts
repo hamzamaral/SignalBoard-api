@@ -1,5 +1,5 @@
 import { ListingStatus } from '@prisma/client';
-import { parseDateRange } from './kamuilan.adapter';
+import { parseDateRange, parseKamuilanListings } from './kamuilan.adapter';
 import {
   contentDedupeKey,
   isNewApplyWindow,
@@ -97,12 +97,56 @@ describe('ingest write logic — edge cases', () => {
       expect(parseDateRange('yakında', now).start).toBeNull();
     });
 
+    it('parses a range that crosses months', () => {
+      const { start, end } = parseDateRange('18 Ekim - 1 Kasım', now);
+      expect(start?.getFullYear()).toBe(2026);
+      expect(start?.getMonth()).toBe(9);
+      expect(start?.getDate()).toBe(18);
+      expect(end?.getMonth()).toBe(10);
+      expect(end?.getDate()).toBe(1);
+    });
+
     it('year rolls when range is long past', () => {
       const jan = new Date(2026, 0, 15);
       const { start } = parseDateRange('1-10 Ocak', jan);
       // still January current year when within 60d past window edge cases —
       // 1-10 Jan vs now 15 Jan: end is in past by < 60 days → keep year
       expect(start?.getFullYear()).toBe(2026);
+    });
+  });
+
+  describe('parseKamuilanListings', () => {
+    const html = `
+      <div id="manset" class="flexslider"><ul class="slides">
+        <li><a href="ilanDetay.aspx?kod=OLD"><h5>
+          <span class="black">ESKİ KURUM</span>
+          <span class="patrol">MANŞETTEKİ İLAN</span>
+          <span class="h5date">1 Ekim - 10 Ekim</span>
+        </h5></a></li>
+      </ul></div>
+      <ul id="nav2">
+        <li>
+          <a class="xx" href="ilanDetay.aspx?kod=TODAY">
+            <p class="alt_p1">ADANA ALPARSLAN TÜRKEŞ BİLİM VE TEKNOLOJİ ÜNİVERSİTESİ</p>
+            <p class="alt_p2">ADANA ALPARSLAN TÜRKEŞ BİLİM VE TEKNOLOJİ ÜNİVERSİTESİ 6 ÖĞRETİM ÜYESİ ALACAK<em> ( 18 Ekim - 1 Kasım) </em></p>
+          </a>
+        </li>
+      </ul>`;
+
+    it('reads the full list instead of the manşet carousel', () => {
+      const items = parseKamuilanListings(html);
+      expect(items).toHaveLength(1);
+      expect(items[0].org).toContain('ADANA');
+      expect(items[0].title).toBe('6 ÖĞRETİM ÜYESİ ALACAK');
+      expect(items[0].dates).toBe('18 Ekim - 1 Kasım');
+      expect(items[0].link).toBe('https://kamuilan.sbb.gov.tr/ilanDetay.aspx?kod=TODAY');
+    });
+
+    it('falls back to the carousel when the full list is absent', () => {
+      const onlySlides = html.replace(/<ul id="nav2">[\s\S]*<\/ul>/, '');
+      const items = parseKamuilanListings(onlySlides);
+      expect(items).toHaveLength(1);
+      expect(items[0].title).toBe('MANŞETTEKİ İLAN');
     });
   });
 
