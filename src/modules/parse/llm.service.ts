@@ -18,10 +18,14 @@ export class LlmService {
     const llm = await this.settings.getLlmConfig();
     if (llm.provider === 'NONE') return null;
 
-    const prompt = `Aşağıdaki Türkçe kamu personel ilan metninden SADECE JSON çıkar.
+    const prompt = `Aşağıdaki ilan metninden SADECE JSON çıkar. Kamu ilanı da olabilir, Kariyer.net gibi özel sektör sayfası da.
+Firma, ilan başlığının hemen altındaki şirket adıdır (A.Ş., Ltd.). Pozisyon o başlıktır; ayrı bir meslek satırı varsa (ör. Yapay Zeka Programcısı) position odur.
+Menü satırlarını (İş İlanları, Hesabım, Ana Sayfa) başlık veya pozisyon sanma.
+Sayfa sonundaki İşkur / Özel İstihdam Bürosu cümlesi firma değildir. "faaliyette bulunmak üzere" tarih aralığı başvuru tarihi değildir.
+Şehir, İstanbul(Asya) gibi konum satırıdır; İl Müdürlüğü satırından şehir uydurma.
 Anahtarlar:
-institutionName, title, city, url,
-applyStartAt, applyEndAt, examAt, resultAnnounceAt (ISO tarih),
+institutionName, title, position, city, url,
+applyStartAt, applyEndAt, examAt, resultAnnounceAt (ISO tarih; yoksa null),
 applicationPlace, applicationMethods (string[]: elektronik|sahsen|posta),
 requiredDocuments (string[]), generalRequirements, specialRequirements,
 examTopics, evaluationNotes,

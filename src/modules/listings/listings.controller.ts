@@ -15,12 +15,30 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { ParseService } from '../parse/parse.service';
 import { MatchingService } from '../matching/matching.service';
 import {
+  BulkListingsDto,
   CreateListingDto,
   EnrichListingDto,
   ListListingsQueryDto,
   PasteParseDto,
 } from './dto/listing.dto';
 import { ListingsService } from './listings.service';
+
+function datesFrom(dto: CreateListingDto) {
+  return {
+    publishedAt: optionalDate(dto.publishedAt),
+    applyStartAt: optionalDate(dto.applyStartAt),
+    applyEndAt: optionalDate(dto.applyEndAt),
+    resultAt: optionalDate(dto.resultAt),
+    examAt: optionalDate(dto.examAt),
+    resultAnnounceAt: optionalDate(dto.resultAnnounceAt),
+  };
+}
+
+function optionalDate(value?: string): Date | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === '') return null;
+  return new Date(value);
+}
 
 @ApiTags('listings')
 @ApiBearerAuth()
@@ -35,6 +53,12 @@ export class ListingsController {
   @Get()
   list(@Query() query: ListListingsQueryDto, @CurrentUser('id') userId: string) {
     return this.listings.list({ ...query, userId });
+  }
+
+  @Roles(Role.ADMIN)
+  @Post('bulk')
+  bulk(@Body() dto: BulkListingsDto) {
+    return this.listings.bulk(dto);
   }
 
   @Roles(Role.ADMIN)
@@ -54,10 +78,7 @@ export class ListingsController {
     const listing = await this.listings.createManual({
       ...dto,
       source: dto.source ?? ListingSource.MANUAL,
-      publishedAt: dto.publishedAt ? new Date(dto.publishedAt) : null,
-      applyStartAt: dto.applyStartAt ? new Date(dto.applyStartAt) : null,
-      applyEndAt: dto.applyEndAt ? new Date(dto.applyEndAt) : null,
-      resultAt: dto.resultAt ? new Date(dto.resultAt) : null,
+      ...datesFrom(dto),
     });
     await this.matching.notifyMatchesForListing(listing.id);
     return listing;
@@ -78,10 +99,7 @@ export class ListingsController {
   update(@Param('id') id: string, @Body() dto: CreateListingDto) {
     return this.listings.update(id, {
       ...dto,
-      publishedAt: dto.publishedAt ? new Date(dto.publishedAt) : undefined,
-      applyStartAt: dto.applyStartAt ? new Date(dto.applyStartAt) : undefined,
-      applyEndAt: dto.applyEndAt ? new Date(dto.applyEndAt) : undefined,
-      resultAt: dto.resultAt ? new Date(dto.resultAt) : undefined,
+      ...datesFrom(dto),
     });
   }
 

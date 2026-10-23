@@ -1,4 +1,4 @@
-import { Controller, Post, Query } from '@nestjs/common';
+import { Controller, Get, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -15,9 +15,14 @@ export class IngestController {
     private readonly notifications: NotificationsService,
   ) {}
 
+  @Get('status')
+  status() {
+    return this.ingest.status();
+  }
+
   @Post('run')
   run(@Query('source') source?: string) {
-    return this.ingest.run(source);
+    return this.ingest.start(source);
   }
 
   @Post('flush-mail')

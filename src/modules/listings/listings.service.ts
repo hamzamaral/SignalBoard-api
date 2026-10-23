@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   ListingKind,
   ListingSource,
@@ -49,6 +49,75 @@ const listingInclude = {
   positions: { orderBy: { sequenceNo: 'asc' as const } },
 };
 
+function listingWhere(params: {
+  q?: string;
+  kind?: ListingKind;
+  status?: ListingStatus;
+  source?: ListingSource;
+  createdFrom?: string;
+  createdTo?: string;
+}): Prisma.ListingWhereInput {
+  const createdAt =
+    params.createdFrom || params.createdTo
+      ? {
+          gte: params.createdFrom ? new Date(params.createdFrom) : undefined,
+          lte: params.createdTo ? new Date(`${params.createdTo}T23:59:59.999`) : undefined,
+        }
+      : undefined;
+  const qNorm = params.q?.trim() ? normalizeText(params.q) : '';
+  return {
+    kind: params.kind,
+    status: params.status,
+    source: params.source,
+    createdAt,
+    OR: qNorm
+      ? [
+          { titleNorm: { contains: qNorm } },
+          { positionNorm: { contains: qNorm } },
+          { institution: { nameNorm: { contains: qNorm } } },
+          { positions: { some: { titleNorm: { contains: qNorm } } } },
+          { title: { contains: params.q, mode: 'insensitive' } },
+          { institution: { name: { contains: params.q, mode: 'insensitive' } } },
+        ]
+      : undefined,
+  };
+}
+
+function listingOrder(
+  sort?: string,
+  order?: 'asc' | 'desc',
+): Prisma.ListingOrderByWithRelationInput[] {
+  const dir = order === 'asc' ? 'asc' : 'desc';
+  const nullable = (
+    field: 'applyEndAt' | 'applyStartAt' | 'resultAnnounceAt' | 'publishedAt' | 'position',
+  ): Prisma.ListingOrderByWithRelationInput[] => [
+    { [field]: { sort: dir, nulls: 'last' } },
+    { id: 'asc' },
+  ];
+  switch (sort) {
+    case 'createdAt':
+      return [{ createdAt: dir }, { id: 'asc' }];
+    case 'updatedAt':
+      return [{ updatedAt: dir }, { id: 'asc' }];
+    case 'title':
+      return [{ title: dir }, { id: 'asc' }];
+    case 'applyEndAt':
+      return nullable('applyEndAt');
+    case 'applyStartAt':
+      return nullable('applyStartAt');
+    case 'resultAnnounceAt':
+      return nullable('resultAnnounceAt');
+    case 'publishedAt':
+      return nullable('publishedAt');
+    case 'position':
+      return nullable('position');
+    case 'institution':
+      return [{ institution: { name: dir } }, { id: 'asc' }];
+    default:
+      return [{ applyEndAt: 'asc' }, { updatedAt: 'desc' }];
+  }
+}
+
 @Injectable()
 export class ListingsService {
   constructor(
@@ -66,36 +135,12 @@ export class ListingsService {
     userId?: string;
     createdFrom?: string;
     createdTo?: string;
+    sort?: string;
+    order?: 'asc' | 'desc';
   }) {
     const page = params.page ?? 1;
     const limit = Math.min(params.limit ?? 20, 200);
-    const createdAt =
-      params.createdFrom || params.createdTo
-        ? {
-            gte: params.createdFrom ? new Date(params.createdFrom) : undefined,
-            lte: params.createdTo
-              ? new Date(`${params.createdTo}T23:59:59.999`)
-              : undefined,
-          }
-        : undefined;
-    const qNorm = params.q?.trim() ? normalizeText(params.q) : '';
-    const where: Prisma.ListingWhereInput = {
-      kind: params.kind,
-      status: params.status,
-      source: params.source,
-      createdAt,
-      OR: qNorm
-        ? [
-            { titleNorm: { contains: qNorm } },
-            { positionNorm: { contains: qNorm } },
-            { institution: { nameNorm: { contains: qNorm } } },
-            { positions: { some: { titleNorm: { contains: qNorm } } } },
-            // raw fallback for partial legacy norms
-            { title: { contains: params.q, mode: 'insensitive' } },
-            { institution: { name: { contains: params.q, mode: 'insensitive' } } },
-          ]
-        : undefined,
-    };
+    const where = listingWhere(params);
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.listing.findMany({
@@ -111,7 +156,7 @@ export class ListingsService {
               }
             : {}),
         },
-        orderBy: [{ applyEndAt: 'asc' }, { updatedAt: 'desc' }],
+        orderBy: listingOrder(params.sort, params.order),
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -247,6 +292,7 @@ export class ListingsService {
         examTopics: input.examTopics ?? existing.examTopics,
         evaluationNotes: input.evaluationNotes ?? existing.evaluationNotes,
         requiredSkills: input.requiredSkills ?? existing.requiredSkills,
+        kind: input.kind ?? existing.kind,
         status: input.status ?? existing.status,
         fingerprint,
         version: { increment: 1 },
@@ -481,5 +527,35 @@ export class ListingsService {
     await this.get(id);
     await this.prisma.listing.delete({ where: { id } });
     return { ok: true };
+  }
+
+  async bulk(input: {
+    action: 'delete' | 'close';
+    ids?: string[];
+    allMatching?: boolean;
+    kind?: ListingKind;
+    status?: ListingStatus;
+    source?: ListingSource;
+    q?: string;
+    createdFrom?: string;
+    createdTo?: string;
+  }) {
+    if (!input.allMatching && !input.ids?.length) {
+      throw new BadRequestException('İlan seçin veya filtredeki tümünü kullanın');
+    }
+    const where: Prisma.ListingWhereInput = input.allMatching
+      ? listingWhere(input)
+      : { id: { in: input.ids ?? [] }, ...(input.kind ? { kind: input.kind } : {}) };
+
+    if (input.action === 'close') {
+      const result = await this.prisma.listing.updateMany({
+        where,
+        data: { status: ListingStatus.CLOSED },
+      });
+      return { ok: true, count: result.count };
+    }
+
+    const result = await this.prisma.listing.deleteMany({ where });
+    return { ok: true, count: result.count };
   }
 }

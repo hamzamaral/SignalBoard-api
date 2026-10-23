@@ -12,6 +12,10 @@ export type ParsedPosition = {
 };
 
 export type ParsedListingFields = {
+  /** job-board: firma ve pozisyon sayfa iskeletinden okundu; LLM bunları ezmesin. */
+  shape?: 'job-board';
+  kind?: 'PUBLIC' | 'PRIVATE';
+  description?: string;
   institutionName?: string;
   title?: string;
   position?: string;
@@ -20,6 +24,7 @@ export type ParsedListingFields = {
   kpssScoreType?: string;
   kpssMinScore?: number;
   quota?: number;
+  publishedAt?: string;
   applyStartAt?: string;
   applyEndAt?: string;
   resultAt?: string;
